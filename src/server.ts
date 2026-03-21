@@ -107,16 +107,17 @@ app.use((err: Error, req: express.Request, res: express.Response, next: express.
   });
 });
 
-// Iniciar servidor
-app.listen(PORT, () => {
+// Iniciar servidor (0.0.0.0 necessário para Docker/containers)
+const HOST = process.env.HOST || "0.0.0.0";
+app.listen(Number(PORT), HOST, () => {
   console.log(`
 ╔═══════════════════════════════════════════════════════╗
 ║                                                       ║
 ║   🌸 ENCANTO DAY - API Backend                        ║
 ║                                                       ║
-║   Servidor rodando em: http://localhost:${PORT}          ║
+║   Servidor rodando em: http://${HOST}:${PORT}              ║
 ║   Ambiente: ${process.env.NODE_ENV || "development"}                            ║
-║   Health check: http://localhost:${PORT}/api/health      ║
+║   Health check: http://${HOST}:${PORT}/api/health          ║
 ║                                                       ║
 ╚═══════════════════════════════════════════════════════╝
   `);

@@ -1,12 +1,14 @@
-# fly.toml app configuration file generated for loja-encantoday-backend on 2026-03-21T00:03:18Z
-#
+# fly.toml app configuration file
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
-#
 
 app = 'loja-encantoday-backend'
-primary_region = 'ams'
+primary_region = 'gru'
 
 [build]
+
+[env]
+  PORT = "8080"
+  NODE_ENV = "production"
 
 [http_service]
   internal_port = 8080
@@ -17,7 +19,6 @@ primary_region = 'ams'
   processes = ['app']
 
 [[vm]]
-  memory = '1gb'
+  memory = '256mb'
   cpu_kind = 'shared'
   cpus = 1
-  memory_mb = 256
