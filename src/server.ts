@@ -30,7 +30,7 @@ import couponsRoutes from "./routes/coupons.js";
 const app = express();
 const PORT = process.env.PORT || 8080;
 
-// Middlewares de segurança
+// Middlewares de segurançaff
 app.use(helmet());
 
 // Compressao gzip
