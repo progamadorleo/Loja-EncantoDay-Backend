@@ -251,6 +251,41 @@ router.delete('/admin/:id', authMiddleware, async (req: Request, res: Response) 
   try {
     const { id } = req.params;
 
+    // Verificar se cupom existe
+    const { data: coupon, error: findError } = await supabase
+      .from('coupons')
+      .select('id, code')
+      .eq('id', id)
+      .single();
+
+    if (findError || !coupon) {
+      return res.status(404).json({ error: 'Cupom nao encontrado' });
+    }
+
+    // Verificar se cupom esta em uso em algum pedido
+    const { count: orderCount } = await supabase
+      .from('orders')
+      .select('id', { count: 'exact', head: true })
+      .eq('coupon_id', id);
+
+    if (orderCount && orderCount > 0) {
+      // Em vez de deletar, apenas desativar o cupom
+      const { error: updateError } = await supabase
+        .from('coupons')
+        .update({ is_active: false })
+        .eq('id', id);
+
+      if (updateError) {
+        return res.status(500).json({ error: 'Erro ao desativar cupom' });
+      }
+
+      return res.json({ 
+        success: true, 
+        message: `Cupom "${coupon.code}" foi desativado pois esta vinculado a ${orderCount} pedido(s). Ele nao sera excluido para manter o historico.`
+      });
+    }
+
+    // Se nao esta em uso, pode deletar
     const { error } = await supabase
       .from('coupons')
       .delete()
@@ -261,7 +296,7 @@ router.delete('/admin/:id', authMiddleware, async (req: Request, res: Response) 
       return res.status(500).json({ error: 'Erro ao deletar cupom' });
     }
 
-    res.json({ success: true });
+    res.json({ success: true, message: `Cupom "${coupon.code}" excluido com sucesso` });
   } catch (error) {
     console.error('Erro ao deletar cupom:', error);
     res.status(500).json({ error: 'Erro interno do servidor' });
