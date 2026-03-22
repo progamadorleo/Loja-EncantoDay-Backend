@@ -2,6 +2,8 @@ import { Router, Request, Response } from "express";
 import { z } from "zod";
 import supabaseAdmin from "../config/supabase.js";
 import { authMiddleware, adminMiddleware } from "../middlewares/auth.js";
+import { getOrSet, invalidateProducts, CACHE_KEYS, CACHE_TTL } from "../utils/cache.js";
+import { searchLimiter } from "../middlewares/rateLimit.js";
 
 const router = Router();
 
@@ -25,7 +27,7 @@ const productSchema = z.object({
 
 const productUpdateSchema = productSchema.partial();
 
-// GET /api/products - Listar produtos (público)
+// GET /api/products - Listar produtos (público) - com cache
 router.get("/", async (req: Request, res: Response) => {
   try {
     const {
@@ -42,53 +44,71 @@ router.get("/", async (req: Request, res: Response) => {
     const limitNum = parseInt(limit as string);
     const offset = (pageNum - 1) * limitNum;
 
-    let query = supabaseAdmin
-      .from("products")
-      .select(`
-        *,
-        category:categories(id, name, slug)
-      `, { count: "exact" })
-      .eq("is_active", true);
+    // Gerar chave de cache unica para esta query
+    const cacheKey = search 
+      ? null // Nao cachear buscas (muito dinamico)
+      : `products_${category || 'all'}_${featured || 'all'}_${sort}_${order}_p${pageNum}_l${limitNum}`;
 
-    // Filtros
-    if (category) {
-      query = query.eq("category_id", category);
+    const fetchProducts = async () => {
+      let query = supabaseAdmin
+        .from("products")
+        .select(`
+          *,
+          category:categories(id, name, slug)
+        `, { count: "exact" })
+        .eq("is_active", true);
+
+      // Filtros
+      if (category) {
+        query = query.eq("category_id", category);
+      }
+
+      if (search) {
+        query = query.or(`name.ilike.%${search}%,description.ilike.%${search}%`);
+      }
+
+      if (featured === "true") {
+        query = query.eq("is_featured", true);
+      }
+
+      // Ordenação
+      const validSortFields = ["created_at", "price", "name", "stock_quantity"];
+      const sortField = validSortFields.includes(sort as string) ? sort as string : "created_at";
+      const sortOrder = order === "asc" ? true : false;
+
+      query = query.order(sortField, { ascending: sortOrder });
+
+      // Paginação
+      query = query.range(offset, offset + limitNum - 1);
+
+      const { data: products, error, count } = await query;
+
+      if (error) {
+        throw error;
+      }
+
+      return {
+        success: true,
+        data: products,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total: count || 0,
+          totalPages: Math.ceil((count || 0) / limitNum),
+        },
+      };
+    };
+
+    // Se tem search, nao usa cache
+    if (!cacheKey) {
+      const result = await fetchProducts();
+      return res.json(result);
     }
 
-    if (search) {
-      query = query.or(`name.ilike.%${search}%,description.ilike.%${search}%`);
-    }
+    // Usa cache para listagens normais
+    const result = await getOrSet(cacheKey, fetchProducts, CACHE_TTL.PRODUCTS);
+    return res.json(result);
 
-    if (featured === "true") {
-      query = query.eq("is_featured", true);
-    }
-
-    // Ordenação
-    const validSortFields = ["created_at", "price", "name", "stock_quantity"];
-    const sortField = validSortFields.includes(sort as string) ? sort as string : "created_at";
-    const sortOrder = order === "asc" ? true : false;
-
-    query = query.order(sortField, { ascending: sortOrder });
-
-    // Paginação
-    query = query.range(offset, offset + limitNum - 1);
-
-    const { data: products, error, count } = await query;
-
-    if (error) {
-      throw error;
-    }
-
-    return res.json({
-      success: true,
-      data: products,
-      pagination: {
-        page: pageNum,
-        limit: limitNum,
-        total: count || 0,
-        totalPages: Math.ceil((count || 0) / limitNum),
-      },
-    });
   } catch (error) {
     console.error("Erro ao listar produtos:", error);
     return res.status(500).json({
@@ -133,22 +153,34 @@ router.get("/:id", async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/products/slug/:slug - Buscar produto por slug (público)
+// GET /api/products/slug/:slug - Buscar produto por slug (público) - com cache
 router.get("/slug/:slug", async (req: Request, res: Response) => {
   try {
     const { slug } = req.params;
 
-    const { data: product, error } = await supabaseAdmin
-      .from("products")
-      .select(`
-        *,
-        category:categories(id, name, slug)
-      `)
-      .eq("slug", slug)
-      .eq("is_active", true)
-      .single();
+    const result = await getOrSet(
+      CACHE_KEYS.PRODUCT_BY_SLUG(slug),
+      async () => {
+        const { data: product, error } = await supabaseAdmin
+          .from("products")
+          .select(`
+            *,
+            category:categories(id, name, slug)
+          `)
+          .eq("slug", slug)
+          .eq("is_active", true)
+          .single();
 
-    if (error || !product) {
+        if (error || !product) {
+          return null;
+        }
+
+        return product;
+      },
+      CACHE_TTL.PRODUCT_DETAIL
+    );
+
+    if (!result) {
       return res.status(404).json({
         error: "Not Found",
         message: "Produto não encontrado",
@@ -157,7 +189,7 @@ router.get("/slug/:slug", async (req: Request, res: Response) => {
 
     return res.json({
       success: true,
-      data: product,
+      data: result,
     });
   } catch (error) {
     console.error("Erro ao buscar produto:", error);
@@ -320,6 +352,9 @@ router.post("/admin", authMiddleware, adminMiddleware, async (req: Request, res:
       throw error;
     }
 
+    // Invalidar cache de produtos
+    invalidateProducts();
+
     return res.status(201).json({
       success: true,
       message: "Produto criado com sucesso",
@@ -399,6 +434,9 @@ router.put("/admin/:id", authMiddleware, adminMiddleware, async (req: Request, r
       throw error;
     }
 
+    // Invalidar cache de produtos
+    invalidateProducts();
+
     return res.json({
       success: true,
       message: "Produto atualizado com sucesso",
@@ -441,6 +479,9 @@ router.delete("/admin/:id", authMiddleware, adminMiddleware, async (req: Request
     if (error) {
       throw error;
     }
+
+    // Invalidar cache de produtos
+    invalidateProducts();
 
     return res.json({
       success: true,

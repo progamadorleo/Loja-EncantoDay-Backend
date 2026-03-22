@@ -5,6 +5,7 @@ import { z } from "zod";
 import { supabaseAdmin } from "../config/supabase.js";
 import { generateAccessToken, generateRefreshToken, verifyRefreshToken } from "../config/jwt.js";
 import { customerAuthMiddleware, CustomerRequest } from "../middlewares/customerAuth.js";
+import { authLimiter } from "../middlewares/rateLimit.js";
 
 const router = Router();
 
@@ -43,7 +44,7 @@ const changePasswordSchema = z.object({
 // ============================================
 // REGISTRO DE CLIENTE
 // ============================================
-router.post("/register", async (req: Request, res: Response) => {
+router.post("/register", authLimiter, async (req: Request, res: Response) => {
   try {
     const validation = registerSchema.safeParse(req.body);
     if (!validation.success) {
@@ -157,7 +158,7 @@ router.post("/register", async (req: Request, res: Response) => {
 // ============================================
 // LOGIN DE CLIENTE
 // ============================================
-router.post("/login", async (req: Request, res: Response) => {
+router.post("/login", authLimiter, async (req: Request, res: Response) => {
   try {
     const validation = loginSchema.safeParse(req.body);
     if (!validation.success) {

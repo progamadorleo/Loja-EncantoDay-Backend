@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { supabaseAdmin } from "../config/supabase.js";
 import { authMiddleware } from "../middlewares/auth.js";
+import { getOrSet, invalidateBanners, CACHE_KEYS, CACHE_TTL } from "../utils/cache.js";
 
 const router = Router();
 
@@ -34,25 +35,33 @@ const bannerSchema = z.object({
 // ROTAS PÚBLICAS
 // ============================================
 
-// GET /api/banners - Listar banners ativos (público)
+// GET /api/banners - Listar banners ativos (público) - com cache
 router.get("/", async (req: Request, res: Response) => {
   try {
-    const now = new Date().toISOString();
-    
-    const { data, error } = await supabaseAdmin
-      .from("banners")
-      .select("*")
-      .eq("is_active", true)
-      .or(`starts_at.is.null,starts_at.lte.${now}`)
-      .or(`ends_at.is.null,ends_at.gte.${now}`)
-      .order("sort_order", { ascending: true });
+    const result = await getOrSet(
+      CACHE_KEYS.BANNERS_ACTIVE,
+      async () => {
+        const now = new Date().toISOString();
+        
+        const { data, error } = await supabaseAdmin
+          .from("banners")
+          .select("*")
+          .eq("is_active", true)
+          .or(`starts_at.is.null,starts_at.lte.${now}`)
+          .or(`ends_at.is.null,ends_at.gte.${now}`)
+          .order("sort_order", { ascending: true });
 
-    if (error) throw error;
+        if (error) throw error;
 
-    return res.json({
-      success: true,
-      data,
-    });
+        return {
+          success: true,
+          data,
+        };
+      },
+      CACHE_TTL.BANNERS
+    );
+
+    return res.json(result);
   } catch (error) {
     console.error("Error fetching banners:", error);
     return res.status(500).json({
@@ -146,6 +155,9 @@ router.post("/admin", authMiddleware, async (req: Request, res: Response) => {
 
     if (error) throw error;
 
+    // Invalidar cache de banners
+    invalidateBanners();
+
     return res.status(201).json({
       success: true,
       message: "Banner criado com sucesso",
@@ -198,6 +210,9 @@ router.put("/admin/:id", authMiddleware, async (req: Request, res: Response) => 
 
     if (error) throw error;
 
+    // Invalidar cache de banners
+    invalidateBanners();
+
     return res.json({
       success: true,
       message: "Banner atualizado com sucesso",
@@ -240,6 +255,9 @@ router.patch("/admin/:id/toggle", authMiddleware, async (req: Request, res: Resp
 
     if (error) throw error;
 
+    // Invalidar cache de banners
+    invalidateBanners();
+
     return res.json({
       success: true,
       message: `Banner ${data.is_active ? "ativado" : "desativado"} com sucesso`,
@@ -274,6 +292,9 @@ router.put("/admin/reorder", authMiddleware, async (req: Request, res: Response)
         .eq("id", item.id);
     }
 
+    // Invalidar cache de banners
+    invalidateBanners();
+
     return res.json({
       success: true,
       message: "Ordem atualizada com sucesso",
@@ -298,6 +319,9 @@ router.delete("/admin/:id", authMiddleware, async (req: Request, res: Response) 
       .eq("id", id);
 
     if (error) throw error;
+
+    // Invalidar cache de banners
+    invalidateBanners();
 
     return res.json({
       success: true,

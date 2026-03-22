@@ -11,6 +11,7 @@ import {
   REFRESH_TOKEN_COOKIE,
 } from "../config/jwt.js";
 import { authMiddleware } from "../middlewares/auth.js";
+import { authLimiter } from "../middlewares/rateLimit.js";
 
 const router = Router();
 
@@ -20,8 +21,8 @@ const loginSchema = z.object({
   password: z.string().min(6, "Senha deve ter no mínimo 6 caracteres"),
 });
 
-// POST /api/auth/login
-router.post("/login", async (req: Request, res: Response) => {
+// POST /api/auth/login - com rate limiting especifico
+router.post("/login", authLimiter, async (req: Request, res: Response) => {
   try {
     // Validar input
     const validation = loginSchema.safeParse(req.body);

@@ -4,6 +4,7 @@ import { customerAuthMiddleware } from '../middlewares/customerAuth.js';
 import { authMiddleware } from '../middlewares/auth.js';
 import { MercadoPagoConfig, Payment, Preference } from 'mercadopago';
 import { applyCoupon } from './coupons.js';
+import { orderLimiter, paymentLimiter } from '../middlewares/rateLimit.js';
 
 const router = Router();
 
@@ -57,8 +58,8 @@ interface ProcessPaymentBody {
   payer_email?: string;
 }
 
-// Criar pedido
-router.post('/', customerAuthMiddleware, async (req: Request, res: Response) => {
+// Criar pedido - com rate limiting
+router.post('/', orderLimiter, customerAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const customerId = (req as any).customer?.id;
     const body: CreateOrderBody = req.body;
@@ -147,7 +148,7 @@ router.post('/', customerAuthMiddleware, async (req: Request, res: Response) => 
 });
 
 // Processar pagamento
-router.post('/payment', customerAuthMiddleware, async (req: Request, res: Response) => {
+router.post('/payment', paymentLimiter, customerAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const customerId = (req as any).customer?.id;
     const body: ProcessPaymentBody = req.body;

@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { z } from "zod";
 import supabaseAdmin from "../config/supabase.js";
 import { authMiddleware, adminMiddleware } from "../middlewares/auth.js";
+import { getOrSet, invalidateCategories, CACHE_KEYS, CACHE_TTL } from "../utils/cache.js";
 
 const router = Router();
 
@@ -17,23 +18,31 @@ const categorySchema = z.object({
 
 const categoryUpdateSchema = categorySchema.partial();
 
-// GET /api/categories - Listar categorias ativas (público)
+// GET /api/categories - Listar categorias ativas (público) - com cache
 router.get("/", async (req: Request, res: Response) => {
   try {
-    const { data: categories, error } = await supabaseAdmin
-      .from("categories")
-      .select("*")
-      .eq("is_active", true)
-      .order("sort_order", { ascending: true });
+    const result = await getOrSet(
+      CACHE_KEYS.CATEGORIES,
+      async () => {
+        const { data: categories, error } = await supabaseAdmin
+          .from("categories")
+          .select("*")
+          .eq("is_active", true)
+          .order("sort_order", { ascending: true });
 
-    if (error) {
-      throw error;
-    }
+        if (error) {
+          throw error;
+        }
 
-    return res.json({
-      success: true,
-      data: categories,
-    });
+        return {
+          success: true,
+          data: categories,
+        };
+      },
+      CACHE_TTL.CATEGORIES
+    );
+
+    return res.json(result);
   } catch (error) {
     console.error("Erro ao listar categorias:", error);
     return res.status(500).json({
@@ -204,6 +213,9 @@ router.post("/admin", authMiddleware, adminMiddleware, async (req: Request, res:
       throw error;
     }
 
+    // Invalidar cache de categorias
+    invalidateCategories();
+
     return res.status(201).json({
       success: true,
       message: "Categoria criada com sucesso",
@@ -280,6 +292,9 @@ router.put("/admin/:id", authMiddleware, adminMiddleware, async (req: Request, r
       throw error;
     }
 
+    // Invalidar cache de categorias
+    invalidateCategories();
+
     return res.json({
       success: true,
       message: "Categoria atualizada com sucesso",
@@ -335,6 +350,9 @@ router.delete("/admin/:id", authMiddleware, adminMiddleware, async (req: Request
     if (error) {
       throw error;
     }
+
+    // Invalidar cache de categorias
+    invalidateCategories();
 
     return res.json({
       success: true,

@@ -3,10 +3,13 @@ import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
 import cookieParser from "cookie-parser";
+import compression from "compression";
 import dotenv from "dotenv";
 
 // Carregar variáveis de ambiente (deve ser antes de importar rotas)
 dotenv.config();
+
+import { generalLimiter } from "./middlewares/rateLimit.js";
 
 import healthRoutes from "./routes/health.js";
 import authRoutes from "./routes/auth.js";
@@ -29,6 +32,12 @@ const PORT = process.env.PORT || 3001;
 
 // Middlewares de segurança
 app.use(helmet());
+
+// Compressao gzip
+app.use(compression());
+
+// Rate limiting global
+app.use(generalLimiter);
 
 // CORS configurado
 const corsOrigins = process.env.CORS_ORIGINS?.split(",") || ["http://localhost:3000"];
